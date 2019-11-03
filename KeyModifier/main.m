@@ -6,12 +6,23 @@
 //  Copyright © 2019 Mid. All rights reserved.
 //
 
+
+//#import "keycode.h"
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
+#import "ModifyMaya.m"
+
+#import <Carbon/Carbon.h>
 
 bool isZDown = false;
+bool isTabDown = false;
+bool isScaling = false;
 bool lastInMaya = false;
+bool enable = true;
 
+int zStep = 0;
+CFRunLoopSourceRef runLoopSource;
+CGEventRef replacedEvent;
 
 long long count = 0;
 
@@ -41,17 +52,34 @@ void LogKeyStroke(CGEventTimestamp *pTimeStamp,
 CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef event, void *pLogFile) {
     UniChar uc[10];
     UniCharCount ucc;
-    CGEventFlags flags;
+
+    NSRunningApplication *frontmostApp = [NSWorkspace sharedWorkspace].frontmostApplication;
+    if (frontmostApp) {
+//        NSLog(@"frontmostApp's bundleIdentifier = %@", frontmostApp.bundleIdentifier);
+        if (![frontmostApp.bundleIdentifier containsString:@"com.autodesk.Maya"])
+            goto RET;
+    }
+
+    int64_t keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode);
+    CGEventFlags flags = CGEventGetFlags(event);
+
+    int64_t userData = CGEventGetIntegerValueField(event, kCGEventSourceUserData);
+    if (userData == 20) {
+        goto RET;
+    }
 
 //    if (type == kCGEventLeftMouseUp) {
 //        NSLog(@"left mouse up");
 //    } else if (type == kCGEventRightMouseUp) {
-//        if (isZDown) {
-//            NSLog(@"z down, intersect right mouse up");
-//            return nil;
-//        }
 //        NSLog(@"right mouse up");
 ////        return nil;
+//    } else if (type == kCGEventOtherMouseDragged) {
+//        NSLog(@"other mouse dragged, code=%d, flag=%d", keycode, flags);
+//        for (int i = 1; i <= 13; i++) {
+//            int64_t value = CGEventGetIntegerValueField(event, i);
+//            NSLog(@"intergerValueField %d = %d", i, value);
+//        }
+//        NSLog(@"---------------");
 //    }
 
 //    if (type != kCGEventKeyDown) {
@@ -62,73 +90,262 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
 //            }
 //        }
 //    }
-    
-    NSRunningApplication *frontmostApp = [NSWorkspace sharedWorkspace].frontmostApplication;
-    if (frontmostApp) {
-//        NSLog(@"frontmostApp's bundleIdentifier = %@", frontmostApp.bundleIdentifier);
-        if (![frontmostApp.bundleIdentifier containsString: @"com.autodesk.Maya"])
-            goto RET;
+//    NSEvent *ev = [NSEvent eventWithCGEvent:event];
+
+
+// NOTE !!!!!!!! 注掉以后，移动会出问题。可以发现，post的消息应该会再次走进来，待验证 ！！！！！
+
+    if ((flags & kCGEventFlagMaskAlternate) || (flags & kCGEventFlagMaskControl) ) {
+        keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode);
+        flags = CGEventGetFlags(event);
+        type = CGEventGetType(event);
+        NSLog(@"final ---->> code = %d, type = %d, flag = %d", keycode, type, flags);
+        for (int i = 1; i <= 13; i++) {
+            int64_t value = CGEventGetIntegerValueField(event, i);
+            NSLog(@"intergerValueField %d = %d", i, value);
+        }
+        NSLog(@"---------------");
+        goto RET;
     }
 
-    CGEventTimestamp timeStamp = CGEventGetTimestamp(event);
-    long long keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode);
+
+// -----------------------------------------------------------------
+    // 3 -> alt + mouse right
+//    if (keycode == kVK_ANSI_3) {
+//        NSLog(@"code = %d, type = %d, flag = %d", keycode, type, flags);
+//        if ((flags & kCGEventFlagMaskAlternate) |
+//                (flags & kCGEventFlagMaskCommand) |
+//                (flags & kCGEventFlagMaskShift) |
+//                (flags & kCGEventFlagMaskControl) |
+//                (flags & kCGEventFlagMaskSecondaryFn)) {
+//            return event;
+//        }
+//        CGEventSetFlags(event, flags | kCGEventFlagMaskAlternate);
+//        if (type == kCGEventKeyDown) {
+//            if (!isScaling) {
+//                // 消息累加数，每次+1。无意义
+////                CGEventSetIntegerValueField(event, kCGMouseEventNumber, 1);
+//                CGEventSetType(event, kCGEventRightMouseDown);
+//                isScaling = true;
+//            } else {
+//                CGEventSetType(event, kCGEventRightMouseDragged);
+//            }
+//        } else if (type == kCGEventKeyUp) {
+//            isScaling = false;
+////            CGEventSetIntegerValueField(event, kCGMouseEventNumber, 1);
+//            CGEventSetType(event, kCGEventRightMouseUp);
+//        } else {
+//            NSLog(@" !!! no reach !!!");
+//        }
+//        goto RET;
+//    }
+//    if (isScaling) {
+//        CGEventSetType(event, kCGEventMouseMoved);
+//        goto RET;
+//    }
+// -----------------------------------------------------------------
+
+// -----------------------------------------------------------------
+    // tab -> alt + mouse mid
+    CGEventTapLocation tapLoc = kCGHIDEventTap;
+//    CGEventTapLocation tapLoc = kCGSessionEventTap;
+//    CGEventSourceRef src = CGEventCreateSourceFromEvent(event);
+    CGEventSourceRef src = CGEventCreateSourceFromEvent(event);
+//    CGEventSourceRef src = CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
+//    CGEventSourceRef src = runLoopSource;
+//    src = nil;
+    if (keycode == kVK_Tab) {
+//        NSLog(@"code = %d, type = %d, flag = %d", keycode, type, flags);
+        if ((flags & kCGEventFlagMaskAlternate) |
+                (flags & kCGEventFlagMaskCommand) |
+                (flags & kCGEventFlagMaskShift) |
+                (flags & kCGEventFlagMaskControl) |
+                (flags & kCGEventFlagMaskSecondaryFn)) {
+            return event;
+        }
+//        CGEventSetIntegerValueField(event, kCGKeyboardEventKeycode, 0);
+        // btn num alway -1
+
+//        CGEventSetFlags(event, flags | kCGEventFlagMaskAlternate);
+//        CGEventSetIntegerValueField(event, kCGMouseEventButtonNumber, 2);
+//        CGEventSetIntegerValueField(event, kCGMouseEventSubtype, 1);
+
+        if (type == kCGEventKeyDown) {
+            if (!isTabDown) {
+                // 消息累加数，每次+1。无意义
+//                CGEventSetIntegerValueField(event, kCGMouseEventNumber, 1);
+                isTabDown = true;
+//                CGEventSetType(event, kCGEventFlagsChanged);
+//                CGEventSetIntegerValueField(event, kCGKeyboardEventKeycode, 58);
+//                CGEventSetIntegerValueField(event, kCGMouseEventClickState, 1);
+
+
+//                CGEventSourceRef eventSource = CGEventCreateSourceFromEvent(event);
+                replacedEvent = CGEventCreateKeyboardEvent((CGEventSourceRef) src, (CGKeyCode) 58, true);
+                CGEventSetFlags(replacedEvent,  flags | kCGEventFlagMaskAlternate);
+                CGEventSetIntegerValueField(replacedEvent, kCGEventSourceUserData, 20);
+                CGEventPost(tapLoc, replacedEvent); //  option              return nil;
+
+                replacedEvent = CGEventCreateMouseEvent((CGEventSourceRef) src, kCGEventOtherMouseDown, CGEventGetLocation(event), kCGMouseButtonCenter);
+                CGEventSetFlags(replacedEvent, flags | kCGEventFlagMaskAlternate);
+                CGEventSetIntegerValueField(replacedEvent, kCGEventSourceUserData, 20);
+                CGEventPost(tapLoc, replacedEvent); //                return nil;
+                return nil;
+                goto RET;
+            } else {
+//                CGEventSetType(event, kCGEventOtherMouseDragged);
+//                CGEventSetIntegerValueField(event, kCGKeyboardEventKeycode, 0);
+//                CGEventSetIntegerValueField(event, kCGMouseEventClickState, 0);
+//                CGEventTapPostEvent(nil, CGEventCreateMouseEvent((CGEventSourceRef) runLoopSource, kCGEventOtherMouseDragged, CGEventGetLocation(event), kCGMouseButtonCenter));
+//                goto RET;
+//                CGEventSourceRef eventSource = CGEventCreateSourceFromEvent(event);
+                replacedEvent = CGEventCreateMouseEvent((CGEventSourceRef) src, NX_MOUSEMOVED, CGEventGetLocation(event), kCGMouseButtonCenter);
+                CGEventSetFlags(replacedEvent, flags | kCGEventFlagMaskAlternate);
+                CGEventSetIntegerValueField(replacedEvent, kCGEventSourceUserData, 20);
+                CGEventPost(tapLoc, replacedEvent); //
+//                CFRelease(eventSource);
+                return nil;
+            }
+        } else if (type == kCGEventKeyUp) {
+            isTabDown = false;
+//            CGEventSetIntegerValueField(event, kCGMouseEventNumber, 1);
+//            CGEventSetType(event, kCGEventOtherMouseUp);
+//            CGEventSetType(event, kCGEventFlagsChanged);
+//            CGEventSetIntegerValueField(event, kCGKeyboardEventKeycode, 0);
+//            CGEventSetIntegerValueField(event, kCGMouseEventClickState, 1);
+//            CGEventSourceRef eventSource = CGEventCreateSourceFromEvent(event);
+            replacedEvent = CGEventCreateMouseEvent((CGEventSourceRef) src, kCGEventOtherMouseUp, CGEventGetLocation(event), kCGMouseButtonCenter);
+            CGEventSetFlags(replacedEvent, flags | kCGEventFlagMaskAlternate);
+            CGEventSetIntegerValueField(replacedEvent, kCGEventSourceUserData, 20);
+            CGEventPost(tapLoc, replacedEvent); //
+            replacedEvent = CGEventCreateKeyboardEvent((CGEventSourceRef) src, (CGKeyCode) 58, false);
+//            CGEventSetFlags(replacedEvent, flags);
+            CGEventPost(tapLoc, replacedEvent);
+//            CGEventPost(kCGHIDEventTap, CGEventCreateKeyboardEvent((CGEventSourceRef) runLoopSource, (CGKeyCode) 58, false)); //  option              return nil;
+//            CFRelease(eventSource);
+
+            return nil;
+            goto RET;
+        } else {
+            NSLog(@" !!! no reach !!!");
+        }
+
+    }
+
+    if (isTabDown) {
+//        CGEventSetType(event, kCGEventOtherMouseDragged);
+//        CGEventSourceRef eventSource = CGEventCreateSourceFromEvent(event);
+        replacedEvent = CGEventCreateMouseEvent((CGEventSourceRef) src, NX_MOUSEMOVED, CGEventGetLocation(event), kCGMouseButtonCenter);
+        CGEventSetFlags(replacedEvent, flags | kCGEventFlagMaskAlternate);
+        CGEventSetIntegerValueField(replacedEvent, kCGEventSourceUserData, 20);
+        CGEventPost(tapLoc, replacedEvent);
+//        CFRelease(eventSource);
+        return nil;
+
+//        if (zStep == 0) {
+////            CGEventPost(kCGHIDEventTap, CGEventCreateKeyboardEvent((CGEventSourceRef) runLoopSource, (CGKeyCode) 58, true)); //  option              return nil;
+//            CGEventPost(kCGHIDEventTap, CGEventCreateMouseEvent((CGEventSourceRef) runLoopSource, kCGEventOtherMouseDown, CGEventGetLocation(event), kCGMouseButtonCenter)); //                return nil;
+//            zStep = 1;
+//            return nil;
+//        } else {
+//            CGEventSetType(event, kCGEventMouseMoved);
+//            CGEventSetFlags(event, flags | kCGEventFlagMaskAlternate);
+//            CGEventSetIntegerValueField(event, kCGKeyboardEventKeycode, 0);
+//            goto RET;
+//        }
+//        CGEventSetIntegerValueField(event, kCGMouseEventClickState, 0);
+//        CGEventSetIntegerValueField(event, kCGMouseEventButtonNumber, 2);
+//        CGEventSetIntegerValueField(event, kCGMouseEventSubtype, 1);
+//        CGEventTapPostEvent(nil, CGEventCreateMouseEvent(nil, kCGEventMouseMoved, CGEventGetLocation(event), kCGMouseButtonCenter));
+//        return nil;
+//        NSLog(@"kCGEventOtherMouseDragged code = %d, type = %d, flag = %d", keycode, type, flags);
+
+    }
+// -----------------------------------------------------------------
+
+    if ((flags & kCGEventFlagMaskCommand) && (keycode == kVK_ANSI_Grave)) {
+        NSLog(@"keycode is %d", keycode);
+        goto RET;
+    }
+
+//    NSEvent *ev = [NSEvent eventWithCGEvent:event];
+//    if ((flags & kCGEventFlagMaskShift) &&
+//            (flags & kCGEventFlagMaskAlternate)
+//            ) {
+//        NSLog(@"modify flag : shift && alt");
+//    } else if (flags & kCGEventFlagMaskAlternate) {
+//        NSLog(@"modify flag : alt");
+//    }
+
+
+//    CGEventTimestamp timeStamp = CGEventGetTimestamp(event);
 
     CGEventKeyboardGetUnicodeString(event, 10, &ucc, uc);
-    flags = CGEventGetFlags(event);
 
 //    LogKeyStroke(&timeStamp, &type, &keycode, uc, &ucc, &flags, pLogFile);
-
 //    NSLog(@"key code: %lld,  event: %d", keycode, type);
-
-    if (keycode == 6 && type == NX_KEYDOWN) {
+    if (keycode == kVK_ANSI_Z && type == NX_KEYDOWN) {
         if (isZDown) {
             // note: 使用这句，可以有线拖出来，但是效果比较卡，所以就用下一句没有线的
+//            CGEventSetType(event, kCGEventMouseMoved);
 //            CGEventSetType(event, kCGEventRightMouseDragged);
+
+
+//            CGEventSetType(event, kCGEventRightMouseDown);
+
+            replacedEvent = CGEventCreateMouseEvent((CGEventSourceRef) src, kCGEventRightMouseDragged, CGEventGetLocation(event), kCGMouseButtonRight);
+//            CGEventSetFlags(replacedEvent, 0);
+            CGEventSetIntegerValueField(replacedEvent, kCGEventSourceUserData, 20);
+            CGEventPost(tapLoc, replacedEvent); //
+            return nil;
+//            CGEventSetType(event, kCGEventLeftMouseDragged);
+            CGEventSetType(event, kCGEventLeftMouseDown);
+//            CGEventSetIntegerValueField(event, kCGKeyboardEventKeycode, 0);
+            goto RET;
+        } else {
+            isZDown = true;
+
+            replacedEvent = CGEventCreateMouseEvent((CGEventSourceRef) src, kCGEventRightMouseDown, CGEventGetLocation(event), kCGMouseButtonRight);
+//            NSLog(@"flag is %lld", flags);  // kCGEventFlagMaskNonCoalesced -> 0x100 -> 256
+            CGEventSetIntegerValueField(replacedEvent, kCGEventSourceUserData, 20);
+            CGEventPost(tapLoc, replacedEvent); //
+            return nil;
+
             CGEventSetType(event, kCGEventRightMouseDown);
             goto RET;
-        }
 //        NSLog(@"z down");
 
 //        CGPoint point = CGEventGetLocation(event);
 //        CGEventRef theEvent = CGEventCreateMouseEvent(NULL, kCGEventRightMouseDown, point, kCGMouseButtonRight);
-        isZDown = true;
-        CGEventSetType(event, kCGEventRightMouseDown);
-        goto RET;
-    } else if (keycode == 6 && type == NX_KEYUP) {
+        }
+
+
+    } else if (keycode == kVK_ANSI_Z && type == NX_KEYUP) {
 //        NSLog(@"z up");
         isZDown = false;
+
+        replacedEvent = CGEventCreateMouseEvent((CGEventSourceRef) src, kCGEventRightMouseUp, CGEventGetLocation(event), kCGMouseButtonRight);
+//        CGEventSetFlags(replacedEvent, flags);
+        CGEventSetIntegerValueField(replacedEvent, kCGEventSourceUserData, 20);
+        CGEventPost(tapLoc, replacedEvent); //
+        return nil;
+
         CGEventSetType(event, kCGEventRightMouseUp);
         goto RET;
     }
 
-//    if (type == kCGEventRightMouseDown) {
-//        NSLog(@"r mouse down");
-//        isRightMouseDown = true;
-//    } else if (type == kCGEventRightMouseUp) {
-//        NSLog(@"r mouse up");
-////        CGEventSetType(event, kCGEventNull);
-////        return event;
-//        isRightMouseDown = false;
-//    }
-
-//    if (isRightMouseDown) {
-//        NSLog(@"right mouse downing %d", type);
-//    }
-//    if (isZDown) {
-//        if (type == kCGEventMouseMoved) {
-//            return nil;
-//        } else if (type == kCGEventLeftMouseDown) {
-//            CGEventSetType(event, kCGEventMouseMoved);
-//            return event;
-//        }
-//    }
-
     if (isZDown) {
-//        if (type == kCGEventMouseMoved) {
-//            CGEventSetType(event, kCGEventRightMouseDragged);
-//            return event;
-//        } else {
+        replacedEvent = CGEventCreateMouseEvent((CGEventSourceRef) src, kCGEventRightMouseDragged, CGEventGetLocation(event), kCGMouseButtonRight);
+//        CGEventSetFlags(replacedEvent, flags);
+        CGEventSetIntegerValueField(replacedEvent, kCGEventSourceUserData, 20);
+        CGEventPost(tapLoc, replacedEvent); //
+        return nil;
+
+
+//        CGEventSetIntegerValueField(event, kCGKeyboardEventKeycode, 0);
+//        CGEventSetType(event, kCGEventMouseMoved);
         CGEventSetType(event, kCGEventRightMouseDragged);
+//        CGEventSetType(event, kCGEventLeftMouseDragged);
         goto RET;
 //        }
     }
@@ -136,11 +353,36 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
     RET:
     count++;
 //    NSLog(@"event finally is %u, count: %lld", CGEventGetType(event), count);
+    keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode);
+    flags = CGEventGetFlags(event);
+    type = CGEventGetType(event);
+//    NSLog(@"final ---->> code = %d, type = %d, flag = %d", keycode, type, flags);
     return event;
+
+//    NSRET:
+//    count++;
+//    return ev.CGEvent;
+}
+
+void ensureAccessibility() {
+    NSDictionary *options;
+    options = @{(__bridge id) kAXTrustedCheckOptionPrompt: @NO};
+    BOOL accessibilityEnabled = AXIsProcessTrustedWithOptions((__bridge CFDictionaryRef) options);
+    if (!accessibilityEnabled) {
+        NSString *urlString = @"x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
+        [[NSWorkspace sharedWorkspace] openURL:[NSURL URLWithString:urlString]];
+    }
+}
+
+void enableAccessibility() {
+    NSString *script = @"tell application \"System Preferences\" \n reveal anchor \"Privacy\" of pane id \"com.apple.preference.security\" \n activate \n end tell";
+
+    NSAppleScript *scriptObject = [[NSAppleScript alloc] initWithSource:script];
+    [scriptObject executeAndReturnError:nil];
 }
 
 void createKeyEventListener(FILE *pLogFile) {
-    auto mask = CGEventMaskBit(kCGEventFlagsChanged) |
+    int mask = CGEventMaskBit(kCGEventFlagsChanged) |
             CGEventMaskBit(kCGEventLeftMouseDown) |
             CGEventMaskBit(kCGEventLeftMouseUp) |
             CGEventMaskBit(kCGEventRightMouseDown) |
@@ -149,8 +391,8 @@ void createKeyEventListener(FILE *pLogFile) {
             CGEventMaskBit(kCGEventLeftMouseDragged) |
             CGEventMaskBit(kCGEventRightMouseDragged) |
 //            CGEventMaskBit(kCGEventScrollWheel) |
-//            CGEventMaskBit(kCGEventOtherMouseDown) |
-//            CGEventMaskBit(kCGEventOtherMouseUp) |
+            CGEventMaskBit(kCGEventOtherMouseDown) |
+            CGEventMaskBit(kCGEventOtherMouseUp) |
             CGEventMaskBit(kCGEventOtherMouseDragged) |
             CGEventMaskBit(kCGEventKeyDown) |
             CGEventMaskBit(kCGEventKeyUp);
@@ -163,13 +405,13 @@ void createKeyEventListener(FILE *pLogFile) {
             captureKeyStroke,
             (void *) pLogFile);
 
-    CFRunLoopSourceRef runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0);
+    runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0);
 
     CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, kCFRunLoopCommonModes);
     CGEventTapEnable(eventTap, true);
-    CFRelease(runLoopSource);
 
     CFRunLoopRun();
+//    CFRelease(runLoopSource);
 }
 
 FILE *openLogFile(char *pLogFilename) {
@@ -182,9 +424,9 @@ FILE *openLogFile(char *pLogFilename) {
 
 int main(int argc, const char *argv[]) {
     @autoreleasepool {
+        ensureAccessibility();
         FILE *pLogFile = openLogFile("stdout");
         createKeyEventListener(pLogFile);
     }
     return 0;
 }
-
