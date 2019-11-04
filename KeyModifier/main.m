@@ -17,17 +17,16 @@
 bool isZDown = false;
 bool isTabDown = false;
 bool isScaling = false;
-bool lastInMaya = false;
 
 bool isDeleting = false;
 
 
-bool enable = true;
-
 bool modifyEnable = true;
 
 int zStep = 0;
-CFRunLoopSourceRef runLoopSource;
+
+CGEventSourceRef eventSrc;
+
 CGEventRef replacedEvent;
 CFMachPortRef eventTap;
 
@@ -40,6 +39,7 @@ void postKeyEvent(CGEventSourceRef src, CGKeyCode code, bool downOrUp, CGEventFl
     CGEventSetFlags(event, flags);
     CGEventSetIntegerValueField(event, kCGEventSourceUserData, kUserPost);
     CGEventPost(kCGHIDEventTap, event); //  option              return nil;
+    CFRelease(event);
 }
 
 void postMouseEvent(CGEventSourceRef src, CGEventType type, CGPoint pt, CGMouseButton mb, CGEventFlags flags) {
@@ -47,6 +47,7 @@ void postMouseEvent(CGEventSourceRef src, CGEventType type, CGPoint pt, CGMouseB
     CGEventSetFlags(event, flags);
     CGEventSetIntegerValueField(event, kCGEventSourceUserData, kUserPost);
     CGEventPost(kCGHIDEventTap, event);
+    CFRelease(event);
 }
 
 // note: 触发的时候（一般是KeyDown)，才需要判断。
@@ -94,6 +95,7 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
     UniChar uc[10];
     UniCharCount ucc;
 
+
     // 在调试或者其他时候，在这个callback里如果走了太多时间，系统会停用这个callback，导致之后无法在进入
     // 这里在出现这种情况时，重新enable这个tap，避免失效
     if (type == kCGEventTapDisabledByTimeout) {
@@ -105,20 +107,28 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
 
     int64_t userData = CGEventGetIntegerValueField(event, kCGEventSourceUserData);
 
-    NSRunningApplication *frontmostApp = [NSWorkspace sharedWorkspace].frontmostApplication;
-    if (frontmostApp) {
+    // note: 这里调用 frontmostApplication 会leak，但是它被包在main的 autoreleasepool 里，不允许调用 release()
+    // 只能再写个 autoreleasepool
+    // why: c风格的回调函数里面，无法想用外层的 autoreleasepool 吗？
+    @autoreleasepool {
+        NSWorkspace *ws = NSWorkspace.sharedWorkspace;
+        NSRunningApplication *frontmostApp = ws.frontmostApplication;
+//        return event;
+        if (frontmostApp) {
+            bool inSpecialApp = [frontmostApp.bundleIdentifier containsString:@"com.autodesk.Maya"];
 //        NSLog(@"frontmostApp's bundleIdentifier = %@", frontmostApp.bundleIdentifier);
-        if (![frontmostApp.bundleIdentifier containsString:@"com.autodesk.Maya"]) {
-            isScaling = false;
-            isDeleting = false;
-            // todo: 针对每个app，指定一个UserPostflag，屏蔽其他app产生的event;
-            if (userData == kUserPost) {
-                return nil;
+            if (!inSpecialApp) {
+                isScaling = false;
+                isDeleting = false;
+                // todo: 针对每个app，指定一个UserPostflag，屏蔽其他app产生的event;
+                if (userData == kUserPost) {
+                    return nil;
+                }
+                goto RET;
             }
+        } else {
             goto RET;
         }
-    } else {
-        goto RET;
     }
 
     int64_t keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode);
@@ -188,9 +198,9 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
     CGEventTapLocation tapLoc = kCGHIDEventTap;
 //    CGEventTapLocation tapLoc = kCGSessionEventTap;
 //    CGEventSourceRef src = CGEventCreateSourceFromEvent(event);
-    CGEventSourceRef src = CGEventCreateSourceFromEvent(event);
+//    CGEventSourceRef src = CGEventCreateSourceFromEvent(event);
 //    CGEventSourceRef src = CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
-//    CGEventSourceRef src = runLoopSource;
+    CGEventSourceRef src = eventSrc;
 //    src = nil;
 // -----------------------------------------------------------------
     // cmd + 3 => del
@@ -298,11 +308,13 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
                 CGEventSetFlags(replacedEvent, flags | kCGEventFlagMaskAlternate);
                 CGEventSetIntegerValueField(replacedEvent, kCGEventSourceUserData, kUserPost);
                 CGEventPost(tapLoc, replacedEvent); //  option              return nil;
+                CFRelease(replacedEvent);
 
                 replacedEvent = CGEventCreateMouseEvent((CGEventSourceRef) src, kCGEventOtherMouseDown, CGEventGetLocation(event), kCGMouseButtonCenter);
                 CGEventSetFlags(replacedEvent, flags | kCGEventFlagMaskAlternate);
                 CGEventSetIntegerValueField(replacedEvent, kCGEventSourceUserData, kUserPost);
                 CGEventPost(tapLoc, replacedEvent); //                return nil;
+                CFRelease(replacedEvent);
                 return nil;
                 goto RET;
             } else {
@@ -316,6 +328,7 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
                 CGEventSetFlags(replacedEvent, flags | kCGEventFlagMaskAlternate);
                 CGEventSetIntegerValueField(replacedEvent, kCGEventSourceUserData, 20);
                 CGEventPost(tapLoc, replacedEvent); //
+                CFRelease(replacedEvent);
 //                CFRelease(eventSource);
                 return nil;
             }
@@ -334,6 +347,7 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
             replacedEvent = CGEventCreateKeyboardEvent((CGEventSourceRef) src, (CGKeyCode) 58, false);
 //            CGEventSetFlags(replacedEvent, flags);
             CGEventPost(tapLoc, replacedEvent);
+            CFRelease(replacedEvent);
 //            CGEventPost(kCGHIDEventTap, CGEventCreateKeyboardEvent((CGEventSourceRef) runLoopSource, (CGKeyCode) 58, false)); //  option              return nil;
 //            CFRelease(eventSource);
 
@@ -352,6 +366,7 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
         CGEventSetFlags(replacedEvent, flags | kCGEventFlagMaskAlternate);
         CGEventSetIntegerValueField(replacedEvent, kCGEventSourceUserData, 20);
         CGEventPost(tapLoc, replacedEvent);
+        CFRelease(replacedEvent);
 //        CFRelease(eventSource);
         return nil;
 
@@ -410,6 +425,7 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
 //            CGEventSetFlags(replacedEvent, 0);
                 CGEventSetIntegerValueField(replacedEvent, kCGEventSourceUserData, kUserPost);
                 CGEventPost(tapLoc, replacedEvent); //
+                CFRelease(replacedEvent);
                 return nil;
 //            CGEventSetType(event, kCGEventLeftMouseDragged);
                 CGEventSetType(event, kCGEventLeftMouseDown);
@@ -427,6 +443,7 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
 //            NSLog(@"flag is %lld", flags);  // kCGEventFlagMaskNonCoalesced -> 0x100 -> 256
                     CGEventSetIntegerValueField(replacedEvent, kCGEventSourceUserData, kUserPost);
                     CGEventPost(tapLoc, replacedEvent); //
+                    CFRelease(replacedEvent);
                     return nil;
 
                     CGEventSetType(event, kCGEventRightMouseDown);
@@ -447,9 +464,9 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
 //        CGEventSetFlags(replacedEvent, flags);
                 CGEventSetIntegerValueField(replacedEvent, kCGEventSourceUserData, kUserPost);
                 CGEventPost(tapLoc, replacedEvent); //
+                CFRelease(replacedEvent);
                 return nil;
-            }
-            else {
+            } else {
                 goto RET;
             }
 //            CGEventSetType(event, kCGEventRightMouseUp);
@@ -461,6 +478,7 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
 //        CGEventSetFlags(replacedEvent, flags);
         CGEventSetIntegerValueField(replacedEvent, kCGEventSourceUserData, kUserPost);
         CGEventPost(tapLoc, replacedEvent); //
+        CFRelease(replacedEvent);
         return nil;
 
 
@@ -528,13 +546,19 @@ void createKeyEventListener(FILE *pLogFile) {
             captureKeyStroke,
             (void *) pLogFile);
 
-    runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0);
+    CFRunLoopSourceRef runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, eventTap, 0);
 
     CFRunLoopAddSource(CFRunLoopGetCurrent(), runLoopSource, kCFRunLoopCommonModes);
+    CFRelease(runLoopSource);
+
     CGEventTapEnable(eventTap, true);
+    CFRelease(eventTap);
+
+    eventSrc = CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
 
     CFRunLoopRun();
-//    CFRelease(runLoopSource);
+
+    CFRelease(eventSrc);
 }
 
 FILE *openLogFile(char *pLogFilename) {
