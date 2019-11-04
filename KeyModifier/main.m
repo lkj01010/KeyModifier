@@ -108,7 +108,7 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
     int64_t userData = CGEventGetIntegerValueField(event, kCGEventSourceUserData);
 
     // note: 这里调用 frontmostApplication 会leak，但是它被包在main的 autoreleasepool 里，不允许调用 release()
-    // 只能再写个 autoreleasepool
+    // 只能再写个 autoreleasepool (autoreleasepool 可以嵌套)
     // why: c风格的回调函数里面，无法想用外层的 autoreleasepool 吗？
     @autoreleasepool {
         NSWorkspace *ws = NSWorkspace.sharedWorkspace;
