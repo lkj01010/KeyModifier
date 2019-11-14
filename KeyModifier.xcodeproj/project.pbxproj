@@ -8,7 +8,6 @@
 
 /* Begin PBXBuildFile section */
 		1623EDE9236AE7AB00630091 /* main.m in Sources */ = {isa = PBXBuildFile; fileRef = 1623EDE8236AE7AB00630091 /* main.m */; };
-		A8B535A2F1BA6BD58DCE2F23 /* NOTE.md in Sources */ = {isa = PBXBuildFile; fileRef = A8B5387B4B33D1A978305BEA /* NOTE.md */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -27,9 +26,10 @@
 		1623EDE5236AE7AB00630091 /* KeyModifier */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = KeyModifier; sourceTree = BUILT_PRODUCTS_DIR; };
 		1623EDE8236AE7AB00630091 /* main.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = main.m; sourceTree = "<group>"; };
 		1623EDEF236AE87200630091 /* README.md */ = {isa = PBXFileReference; lastKnownFileType = net.daringfireball.markdown; path = README.md; sourceTree = "<group>"; };
+		16BF881C237D0E2C0049FE3B /* netRes_Notification.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = netRes_Notification.m; sourceTree = "<group>"; };
 		A8B5387B4B33D1A978305BEA /* NOTE.md */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = net.daringfireball.markdown; path = NOTE.md; sourceTree = "<group>"; };
 		A8B53908B3CC5720D37884F4 /* ModifyMaya.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = ModifyMaya.m; sourceTree = "<group>"; };
-		A8B53D1BF34300956EC4F3FD /* keycode.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = keycode.h; sourceTree = "<group>"; };
+		A8B53D1BF34300956EC4F3FD /* keycode.h */ = {isa = PBXFileReference; explicitFileType = sourcecode.c.objc; fileEncoding = 4; path = keycode.h; sourceTree = "<group>"; };
 		A8B53F94A562E9F1380B3837 /* Modify.h */ = {isa = PBXFileReference; explicitFileType = sourcecode.c.objc; fileEncoding = 4; path = Modify.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -69,6 +69,7 @@
 				A8B53D1BF34300956EC4F3FD /* keycode.h */,
 				A8B53908B3CC5720D37884F4 /* ModifyMaya.m */,
 				A8B53F94A562E9F1380B3837 /* Modify.h */,
+				16BF881C237D0E2C0049FE3B /* netRes_Notification.m */,
 			);
 			path = KeyModifier;
 			sourceTree = "<group>";
@@ -131,7 +132,6 @@
 			buildActionMask = 2147483647;
 			files = (
 				1623EDE9236AE7AB00630091 /* main.m in Sources */,
-				A8B535A2F1BA6BD58DCE2F23 /* NOTE.md in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
