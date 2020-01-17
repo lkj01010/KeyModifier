@@ -6,6 +6,7 @@
 //  Copyright © 2019 Mid. All rights reserved.
 //
 
+/// !note: 好像改键的整个api可以替换成最新的 `addGlobalMonitorForEvents`
 
 //#import "keycode.h"
 #import <Foundation/Foundation.h>
@@ -19,9 +20,19 @@
 
 enum App {
     None,
-    App_Maya,
+    App_Maya_Or_FbxReview,
+    App_QQ,
     App_Xcode,
+    App_Preview,
+    App_Chrome,
+    App_Terminal,
+    App_Goland,
+    App_Rider,
+    App_PyCharm,
 };
+
+NSDictionary *wheelSensitivity;
+
 
 enum App lastApp = None;
 enum App curApp = None;
@@ -52,6 +63,15 @@ void postKeyEvent(CGEventSourceRef src, CGKeyCode code, bool downOrUp, CGEventFl
     CGEventPost(kCGHIDEventTap, event); //  option              return nil;
     CFRelease(event);
 }
+
+void postScrollWheelEvent(CGEventSourceRef src, int32_t wheelCount, int32_t delta, CGEventFlags flags) {
+    CGEventRef event = CGEventCreateScrollWheelEvent((CGEventSourceRef) src, kCGScrollEventUnitPixel, wheelCount, delta);
+    CGEventSetFlags(event, flags);
+    CGEventSetIntegerValueField(event, kCGEventSourceUserData, kUserPost);
+    CGEventPost(kCGHIDEventTap, event);
+    CFRelease(event);
+}
+
 
 void postMouseEvent(CGEventSourceRef src, CGEventType type, CGPoint pt, CGMouseButton mb, CGEventFlags flags) {
     CGEventRef event = CGEventCreateMouseEvent((CGEventSourceRef) src, type, pt, mb);
@@ -117,10 +137,21 @@ void LogKeyStroke(CGEventTimestamp *pTimeStamp,
 #pragma mark - Modifer
 
 CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef event, void *pLogFile) {
-    UniChar uc[10];
-    UniCharCount ucc;
 
-
+    int64_t keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode);
+    int64_t mouseDeltaX = CGEventGetIntegerValueField(event, kCGMouseEventDeltaX);
+    int64_t mouseDeltaY = CGEventGetIntegerValueField(event, kCGMouseEventDeltaY);
+    
+    CGEventFlags flags = CGEventGetFlags(event);
+    
+//    UniChar uc[10];
+//    UniCharCount ucc;
+//    CGEventKeyboardGetUnicodeString(event, 10, &ucc, uc);
+//    CGEventTimestamp timeStamp = CGEventGetTimestamp(event);
+//    LogKeyStroke(&timeStamp, &type, &keycode, uc, &ucc, &flags, pLogFile);
+    
+    NSLog(@"mouse dx -> %lld, dy -> %lld", mouseDeltaX, mouseDeltaY);
+    
     // 在调试或者其他时候，在这个callback里如果走了太多时间，系统会停用这个callback，导致之后无法在进入
     // 这里在出现这种情况时，重新enable这个tap，避免失效
     if (type == kCGEventTapDisabledByTimeout) {
@@ -146,10 +177,25 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
 //        return event;
         
         if (frontmostApp) {
-            if ([frontmostApp.bundleIdentifier containsString:@"com.autodesk.Maya"]) {
-                curApp = App_Maya;
+            if ([frontmostApp.bundleIdentifier containsString:@"com.autodesk.Maya"] ||
+                [frontmostApp.bundleIdentifier containsString:@"com.autodesk.mas.fbxreview"]) {
+                curApp = App_Maya_Or_FbxReview;
             } else if ([frontmostApp.bundleIdentifier containsString:@"com.apple.dt.Xcode"]) {
                 curApp = App_Xcode;
+            } else if ([frontmostApp.bundleIdentifier containsString:@"com.apple.Preview"]) {
+                curApp = App_Preview;
+            } else if ([frontmostApp.bundleIdentifier containsString:@"com.tencent.qq"]) {
+                curApp = App_QQ;
+            } else if ([frontmostApp.bundleIdentifier containsString:@"com.google.Chrome"]) {
+                curApp = App_Chrome;
+            } else if ([frontmostApp.bundleIdentifier containsString:@"com.apple.Terminal"]) {
+                curApp = App_Terminal;
+            } else if ([frontmostApp.bundleIdentifier containsString:@"com.jetbrains.goland"]) {
+                curApp = App_Goland;
+            } else if ([frontmostApp.bundleIdentifier containsString:@"com.jetbrains.rider"]) {
+                curApp = App_Rider;
+            } else if ([frontmostApp.bundleIdentifier containsString:@"com.jetbrains.pycharm"]) {
+                curApp = App_PyCharm;
             } else {
                 curApp = None;
             }
@@ -158,36 +204,19 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
         }
         
         if (curApp != lastApp) {
-            if (lastApp == App_Maya) {
+            if (lastApp == App_Maya_Or_FbxReview) {
                 disable_Maya();
             } else if (lastApp == App_Xcode) {
                 disable_XCode();
             }
         }
         
-        if (curApp == None) {
-            goto RET;
-        }
-        
-        lastApp = curApp;
-        
-        
-//        if (frontmostApp) {
-//            bool inSpecialApp = [frontmostApp.bundleIdentifier containsString:@"com.autodesk.Maya"];
-////        NSLog(@"frontmostApp's bundleIdentifier = %@", frontmostApp.bundleIdentifier);
-//            if (!inSpecialApp) {
-//                isScaling = false;
-//                isDeleting = false;
-//
-//                goto RET;
-//            }
-//        } else {
+//        if (curApp == None) {
 //            goto RET;
 //        }
+        
+        lastApp = curApp;
     }
-
-    int64_t keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode);
-    CGEventFlags flags = CGEventGetFlags(event);
 
     // 自己post的消息会进入这个callback。
     // 检测标识位，如果时自己post的，那么直接发送出去。
@@ -195,7 +224,7 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
         goto RET;
     }
 
-    // cmd + ~ 开启或停用改键的开关
+    // opt + ~ 开启或停用改键的开关
     if ((flags & kCGEventFlagMaskAlternate) && (keycode == kVK_ANSI_Grave)) {
         if (type == kCGEventKeyDown) {
             modifyEnable = !modifyEnable;
@@ -257,7 +286,41 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
     CGEventSourceRef src = eventSrc;
 //    src = nil;
 // -----------------------------------------------------------------
-    if (curApp == App_Maya) {
+    // for all application
+    {
+        // ctrl + mouse Y => wheel
+        if (onlyHasTheseFlags(flags, kCGEventFlagMaskControl)) {
+            if (llabs(mouseDeltaY) > 0) {
+                CGEventFlags flags_;
+                if (curApp == App_Preview) {
+                    // 预览app，如果去掉了原始按下的 control flag,模拟滚动会无效
+                    flags_ = flags;
+                } else {
+                    // idea系列，必须去掉 control flag，才有效
+                    flags_ = flags ^ kCGEventFlagMaskControl;
+                }
+                
+                float wheelSensitivity = 1;
+                if (curApp == App_Preview) {
+                    wheelSensitivity = 2;
+                } else if (curApp == App_Chrome) {
+                    wheelSensitivity = 2;
+                } else if (curApp == App_Terminal) {
+                    wheelSensitivity = 1;
+                } else if (curApp == App_QQ) {
+                    wheelSensitivity = 2;
+                }
+
+                postScrollWheelEvent(src, 1, (int32_t)(mouseDeltaY * wheelSensitivity), flags_);
+//                postScrollWheelEvent(src, 1, (int32_t)(mouseDeltaY, flags ^ kCGEventFlagMaskControl);
+            }
+            // ?: how to scroll horizantally
+//            else if (llabs(mouseDeltaX) > 0) {
+//                postScrollWheelEvent(src, 2, (int32_t)mouseDeltaY, flags ^ kCGEventFlagMaskControl);
+//            }
+        }
+    }
+    if (curApp == App_Maya_Or_FbxReview) {
         
         // cmd + 3 => del
             if (keycode == kVK_ANSI_3) {
@@ -459,11 +522,8 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
         //    }
 
 
-        //    CGEventTimestamp timeStamp = CGEventGetTimestamp(event);
 
-            CGEventKeyboardGetUnicodeString(event, 10, &ucc, uc);
-
-        //    LogKeyStroke(&timeStamp, &type, &keycode, uc, &ucc, &flags, pLogFile);
+            
         //    NSLog(@"key code: %lld,  event: %d", keycode, type);
 
             // todo: 以isZDown 为首判断,应该更清晰
@@ -642,6 +702,7 @@ void createKeyEventListener(FILE *pLogFile) {
 
     CFRelease(eventSrc);
 }
+
 
 FILE *openLogFile(char *pLogFilename) {
     if (strcmp(pLogFilename, "stdout") == 0) {
