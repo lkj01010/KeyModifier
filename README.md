@@ -1,5 +1,7 @@
-## Mac上针对特定程序，修改按键
-- Maya：
-    把z键映射成鼠标反键，优化对手写笔的操作
+# Key modifier for MacOS
+
+-  for many software
+-  especially for tablet user
+  
     
     
