@@ -52,6 +52,11 @@ bool ps_fill = false;
 bool ps_clean = false;
 bool ps_layerAdd = false;
 bool ps_layerRemove = false;
+bool ps_scaleBrush = false;
+bool ps_cmdTab = false;
+// 数字键和功能键交换
+bool ps_nums[10] = {false, false, false, false, false,
+    false, false, false, false, false};
 
 int zStep = 0;
 
@@ -71,6 +76,13 @@ void postKeyEvent(CGEventSourceRef src, CGKeyCode code, bool downOrUp, CGEventFl
     CFRelease(event);
 }
 
+void postKeyEventNoFlags(CGEventSourceRef src, CGKeyCode code, bool downOrUp) {
+    CGEventRef event = CGEventCreateKeyboardEvent((CGEventSourceRef) src, code, downOrUp);
+    CGEventSetIntegerValueField(event, kCGEventSourceUserData, kUserPost);
+    CGEventPost(kCGHIDEventTap, event); //  option              return nil;
+    CFRelease(event);
+}
+
 void postScrollWheelEvent(CGEventSourceRef src, int32_t wheelCount, int32_t delta, CGEventFlags flags) {
     CGEventRef event = CGEventCreateScrollWheelEvent((CGEventSourceRef) src, kCGScrollEventUnitPixel, wheelCount, delta);
     CGEventSetFlags(event, flags);
@@ -78,7 +90,6 @@ void postScrollWheelEvent(CGEventSourceRef src, int32_t wheelCount, int32_t delt
     CGEventPost(kCGHIDEventTap, event);
     CFRelease(event);
 }
-
 
 void postMouseEvent(CGEventSourceRef src, CGEventType type, CGPoint pt, CGMouseButton mb, CGEventFlags flags) {
     CGEventRef event = CGEventCreateMouseEvent((CGEventSourceRef) src, type, pt, mb);
@@ -89,17 +100,32 @@ void postMouseEvent(CGEventSourceRef src, CGEventType type, CGPoint pt, CGMouseB
 }
 
 // note: 触发的时候（一般是KeyDown)，才需要判断。
-bool onlyHasTheseFlags(CGEventFlags flags, CGEventFlags validFlags) {
+bool matchFlags(CGEventFlags flags, CGEventFlags validFlags) {
     // #uncertain: more flags ?
     uint64_t all = kCGEventFlagMaskAlternate |
     kCGEventFlagMaskCommand |
     kCGEventFlagMaskControl |
-    kCGEventFlagMaskSecondaryFn |
     kCGEventFlagMaskShift |
     kCGEventFlagMaskAlphaShift;
-    
+
     uint64_t has = flags & all;
     if (has == validFlags) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
+bool hasFlags(CGEventFlags flags, CGEventFlags validFlags) {
+    // #uncertain: more flags ?
+    uint64_t all = kCGEventFlagMaskAlternate |
+    kCGEventFlagMaskCommand |
+    kCGEventFlagMaskControl |
+    kCGEventFlagMaskShift |
+    kCGEventFlagMaskAlphaShift;
+
+    uint64_t has = flags & all;
+    if ((has & validFlags) == has) {
         return true;
     } else {
         return false;
@@ -110,7 +136,7 @@ bool modifyKey(CGEventSourceRef src, int64_t keycode, CGEventType type, CGEventF
                int64_t fromKey, CGEventFlags fromFlags, bool *var,
                int64_t toKey, CGEventFlags toFlags) {
     if (keycode == fromKey) {
-        if (onlyHasTheseFlags(flags, fromFlags)) {
+        if (matchFlags(flags, fromFlags)) {
             if (type == kCGEventKeyDown) {
                 *var = true;
                 postKeyEvent(src, toKey, true, toFlags);
@@ -120,6 +146,27 @@ bool modifyKey(CGEventSourceRef src, int64_t keycode, CGEventType type, CGEventF
         if (*var && type == kCGEventKeyUp) {
             *var = false;
             postKeyEvent(src, toKey, false, toFlags);
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool exchangeKey(CGEventSourceRef src, int64_t keycode, CGEventType type, CGEventFlags flags,
+                int64_t fromKey, bool *var, int64_t toKey, CGEventFlags exclude) {
+    
+    if (keycode == fromKey) {
+        if (type == kCGEventKeyDown) {
+            if (matchFlags(flags, exclude)) {
+                *var = true;
+                postKeyEventNoFlags(src, toKey, true);
+                return true;
+            }
+        }
+        if (*var && type == kCGEventKeyUp) {
+            *var = false;
+            postKeyEventNoFlags(src, toKey, false);
             return true;
         }
     }
@@ -143,6 +190,12 @@ void disable_Ps() {
     ps_clean = false;
     ps_layerAdd = false;
     ps_layerRemove = false;
+    ps_scaleBrush = false;
+    ps_cmdTab = false;
+    for (int i=0; i<10; i++)
+    {
+        ps_nums[i] = false;
+    }
 }
 
 
@@ -173,14 +226,15 @@ void LogKeyStroke(CGEventTimestamp *pTimeStamp,
 
 CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef event, void *pLogFile) {
     
+    CGEventFlags flags = CGEventGetFlags(event);
     int64_t keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode);
 //    int64_t mouseDeltaX = CGEventGetIntegerValueField(event, kCGMouseEventDeltaX);
     int64_t mouseDeltaY = CGEventGetIntegerValueField(event, kCGMouseEventDeltaY);
 //    int64_t tabletPressure = CGEventGetIntegerValueField(event, kCGTabletEventPointPressure);
 //    NSLog(@"mouse dx -> %lld, dy -> %lld, pressure -> %lld", mouseDeltaX, mouseDeltaY, tabletPressure);
+//    NSLog(@"keycode -> %lld, flags -> %lld, eventType -> %u", keycode, flags, type);
     
-    CGEventFlags flags = CGEventGetFlags(event);
-    
+
 
 
     // 在调试或者其他时候，在这个callback里如果走了太多时间，系统会停用这个callback，导致之后无法在进入
@@ -266,6 +320,7 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
             if (!modifyEnable) {
                 disable_Maya();
                 disable_XCode();
+                disable_Ps();
             }
         }
         
@@ -326,7 +381,7 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
         if (curApp != App_Photoshop &&
             curApp != App_ClipStudioPaint) {
             
-            if (onlyHasTheseFlags(flags, kCGEventFlagMaskControl)) {
+            if (matchFlags(flags, kCGEventFlagMaskControl)) {
                 if (llabs(mouseDeltaY) > 0) {
                     CGEventFlags flags_;
                     if (curApp == App_Preview) {
@@ -363,7 +418,7 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
         
         // cmd + 3 => del
         if (keycode == kVK_ANSI_3) {
-            if (onlyHasTheseFlags(flags, kCGEventFlagMaskCommand)) {
+            if (matchFlags(flags, kCGEventFlagMaskCommand)) {
                 if (type == kCGEventKeyDown) {
                     isDeleting = true;
                     postKeyEvent(src, kVK_Delete, true, 0);
@@ -425,8 +480,6 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
                 postMouseEvent(src, kCGEventRightMouseDragged, CGEventGetLocation(event), kCGMouseButtonRight, kCGEventFlagMaskAlternate);
                 //        postMouseEvent(src, kCGEventMouseMoved, CGEventGetLocation(event), kCGMouseButtonRight, kCGEventFlagMaskAlternate);
                 return nil;
-                CGEventSetType(event, kCGEventMouseMoved);
-                goto RET;
             }
         }
         
@@ -474,7 +527,6 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
                     CGEventPost(tapLoc, replacedEvent); //                return nil;
                     CFRelease(replacedEvent);
                     return nil;
-                    goto RET;
                 } else {
                     //                CGEventSetType(event, kCGEventOtherMouseDragged);
                     //                CGEventSetIntegerValueField(event, kCGKeyboardEventKeycode, 0);
@@ -510,7 +562,6 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
                 //            CFRelease(eventSource);
                 
                 return nil;
-                goto RET;
             } else {
                 NSLog(@" !!! no reach !!!");
             }
@@ -587,10 +638,10 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
                     //            CGEventSetIntegerValueField(event, kCGKeyboardEventKeycode, 0);
                     goto RET;
                 } else {
-                    if (onlyHasTheseFlags(flags, 0) ||
-                        onlyHasTheseFlags(flags, kCGEventFlagMaskCommand) ||
-                        onlyHasTheseFlags(flags, kCGEventFlagMaskShift) ||
-                        onlyHasTheseFlags(flags, kCGEventFlagMaskCommand | kCGEventFlagMaskShift)
+                    if (matchFlags(flags, 0) ||
+                        matchFlags(flags, kCGEventFlagMaskCommand) ||
+                        matchFlags(flags, kCGEventFlagMaskShift) ||
+                        matchFlags(flags, kCGEventFlagMaskCommand | kCGEventFlagMaskShift)
                         ) {
                         isZDown = true;
                         
@@ -600,13 +651,6 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
                         CGEventPost(tapLoc, replacedEvent); //
                         CFRelease(replacedEvent);
                         return nil;
-                        
-                        CGEventSetType(event, kCGEventRightMouseDown);
-                        goto RET;
-                        //        NSLog(@"z down");
-                        
-                        //        CGPoint point = CGEventGetLocation(event);
-                        //        CGEventRef theEvent = CGEventCreateMouseEvent(NULL, kCGEventRightMouseDown, point, kCGMouseButtonRight);
                     }
                 }
                 
@@ -645,11 +689,11 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
     } else if (curApp == App_Xcode) {
         if (keycode == kVK_Tab) {
             if (type == kCGEventKeyDown) {
-                if (onlyHasTheseFlags(flags, kCGEventFlagMaskShift)) {
+                if (matchFlags(flags, kCGEventFlagMaskShift)) {
                     xcode_ShiftTab = true;
                     postKeyEvent(src, kVK_ANSI_LeftBracket, true, kCGEventFlagMaskCommand);
                     return nil;
-                } else if (onlyHasTheseFlags(flags, 0)) {
+                } else if (matchFlags(flags, 0)) {
                     xcode_Tab = true;
                     postKeyEvent(src, kVK_ANSI_RightBracket, true, kCGEventFlagMaskCommand);
                     return nil;
@@ -688,15 +732,110 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
                       kVK_ANSI_A, kCGEventFlagMaskControl|kCGEventFlagMaskCommand)) {
             return nil;
         }
-        // opt + x => ctrl + opt + x
+        // opt + x => ctrl + cmd + x
         if (modifyKey(src, keycode, type, flags,
                       kVK_ANSI_X, kCGEventFlagMaskAlternate, &ps_layerRemove,
                       kVK_ANSI_X, kCGEventFlagMaskControl|kCGEventFlagMaskCommand)) {
             return nil;
         }
+
+        if (keycode == kVK_Tab) {
+            
+            if (type == kCGEventKeyDown) {
+                if (flags & kCGEventFlagMaskCommand) {
+                    ps_cmdTab = true;
+                }
+                if ((flags & kCGEventFlagMaskAlternate) |
+                    (flags & kCGEventFlagMaskCommand) |
+                    (flags & kCGEventFlagMaskShift) |
+                    (flags & kCGEventFlagMaskControl) |
+                    (flags & kCGEventFlagMaskSecondaryFn)) {
+                    return event;
+                }
+                if (!ps_scaleBrush) {
+                    ps_scaleBrush = true;
+
+                    postKeyEventNoFlags(src, kVK_Option, true);
+                    postKeyEventNoFlags(src, kVK_Control, true);
+
+                    postMouseEvent(src, kCGEventLeftMouseDown, CGEventGetLocation(event), kCGMouseButtonLeft, flags | kCGEventFlagMaskControl | kCGEventFlagMaskAlternate);
+                    
+                    return nil;
+                }
+            } else if (type == kCGEventKeyUp && ps_scaleBrush) {
+                // 保留系统的 cmd + tab
+                if (ps_cmdTab) {
+                    return event;
+                }
+                
+                ps_scaleBrush = false;
+                
+                postKeyEventNoFlags(src, kVK_Control, false);
+                postKeyEventNoFlags(src, kVK_Option, false);
+                postMouseEvent(src, kCGEventLeftMouseUp, CGEventGetLocation(event), kCGMouseButtonLeft, 0);
+                
+                return nil;
+            }
+        }
+        if (ps_scaleBrush) {
+            postMouseEvent(src, NX_MOUSEMOVED, CGEventGetLocation(event), kCGMouseButtonLeft, flags | kCGEventFlagMaskControl | kCGEventFlagMaskAlternate);
+//
+            return nil;
+            
+//            if (type == kCGEventLeftMouseDown) {
+//                postKeyEvenNoFlags(src, kVK_Option, true);
+//                postKeyEvenNoFlags(src, kVK_Control, true);
+//                    postMouseEvent(src, kCGEventLeftMouseDown, CGEventGetLocation(event), kCGMouseButtonLeft, flags);
+//                NSLog(@"mouseDown");
+//            }
+//            if (type == NX_MOUSEMOVED) {
+//                postMouseEvent(src, NX_MOUSEMOVED, CGEventGetLocation(event), kCGMouseButtonLeft, flags | kCGEventFlagMaskControl | kCGEventFlagMaskAlternate);
+//            }
+//            if (type == kCGEventLeftMouseUp) {
+//                postKeyEvenNoFlags(src, kVK_Control, false);
+//                postKeyEvenNoFlags(src, kVK_Option, false);
+//                postMouseEvent(src, kCGEventLeftMouseUp, CGEventGetLocation(event), kCGMouseButtonLeft, 0);
+//            }
+        }
+        
+        if (exchangeKey(src, keycode, type, flags, kVK_ANSI_Grave, &ps_nums[0], kVK_ANSI_0, 0)) return nil;
+        if (exchangeKey(src, keycode, type, flags, kVK_ANSI_Grave, &ps_nums[0], kVK_ANSI_0, kCGEventFlagMaskShift)) return nil;
+        if (exchangeKey(src, keycode, type, flags, kVK_ANSI_0, &ps_nums[0], kVK_ANSI_Grave, 0)) return nil;
+        
+        // cmd + F1为ps系统占用，所以 cmd + 1时，不置换成F1
+        if (exchangeKey(src, keycode, type, flags, kVK_F1, &ps_nums[1], kVK_ANSI_1, 0)) return nil;
+        if (exchangeKey(src, keycode, type, flags, kVK_ANSI_1, &ps_nums[1], kVK_F1, 0)) return nil;
+//        if (exchangeKey(src, keycode, type, flags, kVK_ANSI_1, &ps_nums[1], kVK_F1, kCGEventFlagMaskCommand)) return nil;
+        
+        if (exchangeKey(src, keycode, type, flags, kVK_F2, &ps_nums[2], kVK_ANSI_2, 0)) return nil;
+        if (exchangeKey(src, keycode, type, flags, kVK_ANSI_2, &ps_nums[2], kVK_F2, 0)) return nil;
+        
+        if (exchangeKey(src, keycode, type, flags, kVK_F3, &ps_nums[3], kVK_ANSI_3, 0)) return nil;
+        if (exchangeKey(src, keycode, type, flags, kVK_ANSI_3, &ps_nums[3], kVK_F3, 0)) return nil;
+        
+        if (exchangeKey(src, keycode, type, flags, kVK_F4, &ps_nums[4], kVK_ANSI_4, 0)) return nil;
+        if (exchangeKey(src, keycode, type, flags, kVK_ANSI_4, &ps_nums[4], kVK_F4, 0)) return nil;
+//        if (exchangeKey(src, keycode, type, flags, kVK_ANSI_4, &ps_nums[4], kVK_F4, kCGEventFlagMaskCommand)) return nil;
+//        if (exchangeKey(src, keycode, type, flags, kVK_ANSI_4, &ps_nums[4], kVK_F4, kCGEventFlagMaskCommand | kCGEventFlagMaskShift)) return nil;
+
+        if (exchangeKey(src, keycode, type, flags, kVK_F5, &ps_nums[5], kVK_ANSI_5, 0)) return nil;
+        if (exchangeKey(src, keycode, type, flags, kVK_ANSI_5, &ps_nums[5], kVK_F5, 0)) return nil;
+
+        if (exchangeKey(src, keycode, type, flags, kVK_F6, &ps_nums[6], kVK_ANSI_6, 0)) return nil;
+        if (exchangeKey(src, keycode, type, flags, kVK_ANSI_6, &ps_nums[6], kVK_F6, 0)) return nil;
+        
+        if (exchangeKey(src, keycode, type, flags, kVK_F7, &ps_nums[7], kVK_ANSI_7, 0)) return nil;
+        if (exchangeKey(src, keycode, type, flags, kVK_ANSI_7, &ps_nums[7], kVK_F7, 0)) return nil;
+        
+        if (exchangeKey(src, keycode, type, flags, kVK_F8, &ps_nums[8], kVK_ANSI_8, 0)) return nil;
+        if (exchangeKey(src, keycode, type, flags, kVK_ANSI_8, &ps_nums[8], kVK_F8, 0)) return nil;
+        
+        if (exchangeKey(src, keycode, type, flags, kVK_F9, &ps_nums[9], kVK_ANSI_9, 0)) return nil;
+        if (exchangeKey(src, keycode, type, flags, kVK_ANSI_9, &ps_nums[9], kVK_F9, 0)) return nil;
+
     }
     
-    
+//    NSLog(@"keycode -> %lld, flags -> %lld, eventType -> %u", keycode, flags, type);
 RET:
     count++;
     //    NSLog(@"event finally is %u, count: %lld", CGEventGetType(event), count);
@@ -762,7 +901,7 @@ void createKeyEventListener(FILE *pLogFile) {
     CFRelease(eventTap);
     
     eventSrc = CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
-    
+                                                                                                        
     CFRunLoopRun();
     
     CFRelease(eventSrc);
