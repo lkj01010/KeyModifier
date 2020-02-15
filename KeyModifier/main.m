@@ -801,25 +801,27 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
         if (exchangeKey(src, keycode, type, flags, kVK_ANSI_Grave, &ps_nums[0], kVK_ANSI_0, 0)) return nil;
         if (exchangeKey(src, keycode, type, flags, kVK_ANSI_Grave, &ps_nums[0], kVK_ANSI_0, kCGEventFlagMaskShift)) return nil;
         if (exchangeKey(src, keycode, type, flags, kVK_ANSI_0, &ps_nums[0], kVK_ANSI_Grave, 0)) return nil;
-        
+
         // cmd + F1为ps系统占用，所以 cmd + 1时，不置换成F1
         if (exchangeKey(src, keycode, type, flags, kVK_F1, &ps_nums[1], kVK_ANSI_1, 0)) return nil;
         if (exchangeKey(src, keycode, type, flags, kVK_ANSI_1, &ps_nums[1], kVK_F1, 0)) return nil;
-//        if (exchangeKey(src, keycode, type, flags, kVK_ANSI_1, &ps_nums[1], kVK_F1, kCGEventFlagMaskCommand)) return nil;
-        
+
         if (exchangeKey(src, keycode, type, flags, kVK_F2, &ps_nums[2], kVK_ANSI_2, 0)) return nil;
         if (exchangeKey(src, keycode, type, flags, kVK_ANSI_2, &ps_nums[2], kVK_F2, 0)) return nil;
-        
+
         if (exchangeKey(src, keycode, type, flags, kVK_F3, &ps_nums[3], kVK_ANSI_3, 0)) return nil;
         if (exchangeKey(src, keycode, type, flags, kVK_ANSI_3, &ps_nums[3], kVK_F3, 0)) return nil;
-        
+        if (exchangeKey(src, keycode, type, flags, kVK_ANSI_3, &ps_nums[3], kVK_F3, kCGEventFlagMaskAlternate)) return nil;
+
         if (exchangeKey(src, keycode, type, flags, kVK_F4, &ps_nums[4], kVK_ANSI_4, 0)) return nil;
         if (exchangeKey(src, keycode, type, flags, kVK_ANSI_4, &ps_nums[4], kVK_F4, 0)) return nil;
+        if (exchangeKey(src, keycode, type, flags, kVK_ANSI_4, &ps_nums[4], kVK_F4, kCGEventFlagMaskAlternate)) return nil;
 //        if (exchangeKey(src, keycode, type, flags, kVK_ANSI_4, &ps_nums[4], kVK_F4, kCGEventFlagMaskCommand)) return nil;
 //        if (exchangeKey(src, keycode, type, flags, kVK_ANSI_4, &ps_nums[4], kVK_F4, kCGEventFlagMaskCommand | kCGEventFlagMaskShift)) return nil;
 
         if (exchangeKey(src, keycode, type, flags, kVK_F5, &ps_nums[5], kVK_ANSI_5, 0)) return nil;
         if (exchangeKey(src, keycode, type, flags, kVK_ANSI_5, &ps_nums[5], kVK_F5, 0)) return nil;
+        if (exchangeKey(src, keycode, type, flags, kVK_ANSI_5, &ps_nums[5], kVK_F5, kCGEventFlagMaskAlternate)) return nil;
 
         if (exchangeKey(src, keycode, type, flags, kVK_F6, &ps_nums[6], kVK_ANSI_6, 0)) return nil;
         if (exchangeKey(src, keycode, type, flags, kVK_ANSI_6, &ps_nums[6], kVK_F6, 0)) return nil;
