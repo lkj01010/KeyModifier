@@ -425,7 +425,7 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
     {
         int64_t wheelFlags;
         if (curApp == App_Photoshop) {
-            wheelFlags = kCGEventFlagMaskControl | kCGEventFlagMaskShift;
+            wheelFlags = kCGEventFlagMaskControl | kCGEventFlagMaskAlternate;
         } else {
             wheelFlags = kCGEventFlagMaskControl;
         }
@@ -783,9 +783,9 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
                       kVK_ANSI_A, kCGEventFlagMaskControl|kCGEventFlagMaskCommand)) {
             return nil;
         }
-        // opt + x => ctrl + cmd + x
+        // opt + z => ctrl + cmd + x
         if (modifyKey(src, keycode, type, flags,
-                      kVK_ANSI_X, kCGEventFlagMaskAlternate, &ps_layerRemove,
+                      kVK_ANSI_Z, kCGEventFlagMaskAlternate, &ps_layerRemove,
                       kVK_ANSI_X, kCGEventFlagMaskControl|kCGEventFlagMaskCommand)) {
             return nil;
         }
