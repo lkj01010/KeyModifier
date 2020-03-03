@@ -71,27 +71,29 @@ long long count = 0;
 
 bool g_shouldReprocess = false;
 
-const int64_t kNotReprocessFlag = 24;
+//const int64_t kNotReprocessFlag = 24;
+const int64_t kUser_NotReprocessFlag = 24;
+const int64_t kUser_SrollWheelHorizontal = 28;
 
 void postKeyEvent(CGEventSourceRef src, CGKeyCode code, bool downOrUp, CGEventFlags flags) {
     CGEventRef event = CGEventCreateKeyboardEvent((CGEventSourceRef) src, code, downOrUp);
     CGEventSetFlags(event, flags);
-    CGEventSetIntegerValueField(event, kCGEventSourceUserData, kNotReprocessFlag);
+    CGEventSetIntegerValueField(event, kCGEventSourceUserData, kUser_NotReprocessFlag);
     CGEventPost(kCGHIDEventTap, event); //  option              return nil;
     CFRelease(event);
 }
 
 void postKeyEventNoFlags(CGEventSourceRef src, CGKeyCode code, bool downOrUp) {
     CGEventRef event = CGEventCreateKeyboardEvent((CGEventSourceRef) src, code, downOrUp);
-    CGEventSetIntegerValueField(event, kCGEventSourceUserData, kNotReprocessFlag);
+    CGEventSetIntegerValueField(event, kCGEventSourceUserData, kUser_NotReprocessFlag);
     CGEventPost(kCGHIDEventTap, event); //  option              return nil;
     CFRelease(event);
 }
 
-void postScrollWheelEvent(CGEventSourceRef src, int32_t wheelCount, int32_t delta, CGEventFlags flags) {
+void postScrollWheelEvent(CGEventSourceRef src, int32_t wheelCount, int32_t delta, CGEventFlags flags, bool horizontal) {
     CGEventRef event = CGEventCreateScrollWheelEvent((CGEventSourceRef) src, kCGScrollEventUnitPixel, wheelCount, delta);
     CGEventSetFlags(event, flags);
-    CGEventSetIntegerValueField(event, kCGEventSourceUserData, kNotReprocessFlag);
+    CGEventSetIntegerValueField(event, kCGEventSourceUserData, horizontal? kUser_SrollWheelHorizontal: kUser_NotReprocessFlag);
     CGEventPost(kCGHIDEventTap, event);
     CFRelease(event);
 }
@@ -99,7 +101,7 @@ void postScrollWheelEvent(CGEventSourceRef src, int32_t wheelCount, int32_t delt
 void postMouseEvent(CGEventSourceRef src, CGEventType type, CGPoint pt, CGMouseButton mb, CGEventFlags flags) {
     CGEventRef event = CGEventCreateMouseEvent((CGEventSourceRef) src, type, pt, mb);
     CGEventSetFlags(event, flags);
-    CGEventSetIntegerValueField(event, kCGEventSourceUserData, kNotReprocessFlag);
+    CGEventSetIntegerValueField(event, kCGEventSourceUserData, kUser_NotReprocessFlag);
     CGEventPost(kCGHIDEventTap, event);
     CFRelease(event);
 }
@@ -237,8 +239,10 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
     
     CGEventFlags flags = CGEventGetFlags(event);
     int64_t keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode);
-//    int64_t mouseDeltaX = CGEventGetIntegerValueField(event, kCGMouseEventDeltaX);
+    int64_t mouseDeltaX = CGEventGetIntegerValueField(event, kCGMouseEventDeltaX);
     int64_t mouseDeltaY = CGEventGetIntegerValueField(event, kCGMouseEventDeltaY);
+    
+    int64_t userData = CGEventGetIntegerValueField(event, kCGEventSourceUserData);
 //    int64_t tabletPressure = CGEventGetIntegerValueField(event, kCGTabletEventPointPressure);
 //    NSLog(@"mouse dx -> %lld, dy -> %lld, pressure -> %lld", mouseDeltaX, mouseDeltaY, tabletPressure);
 //    NSLog(@"keycode -> %lld, flags -> %lld, eventType -> %u", keycode, flags, type);
@@ -255,9 +259,21 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
         return NULL;
     }
     
-    int64_t userData = CGEventGetIntegerValueField(event, kCGEventSourceUserData);
+//    if (userData != 31) {
+//        CGEventSetIntegerValueField(event, kCGEventSourceUserData, 31);
+//        CGEventSetIntegerValueField(event, kCGMouseEventPressure, (int64_t)(((float)tabletPressure) * 0.5));
+//        NSLog(@"tablet, tabletPressure -> %lld", tabletPressure);
+//    } else {
+//        NSLog(@"tablet again in , tabletPressure -> %lld", tabletPressure);
+//    }
     
-//    CGEventSetIntegerValueField(event, kCGMouseEventPressure, (int64_t)(((float)tabletPressure) * 0.5));
+    if (userData == kUser_SrollWheelHorizontal) {
+        int64_t scrollAmount = CGEventGetIntegerValueField(event, kCGScrollWheelEventDeltaAxis1);
+        CGEventSetIntegerValueField(event, kCGEventSourceUserData, kUser_NotReprocessFlag);
+        CGEventSetIntegerValueField(event, kCGScrollWheelEventDeltaAxis1, 0);
+        CGEventSetIntegerValueField(event, kCGScrollWheelEventDeltaAxis2, scrollAmount);
+    }
+    
 
     // note: 这里调用 frontmostApplication 会leak，但是它被包在main的 autoreleasepool 里，不允许调用 release()
     // 只能再写个 autoreleasepool (autoreleasepool 可以嵌套)
@@ -318,7 +334,7 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
     
     // 自己post的消息会进入这个callback。
     // 检测标识位，如果时自己post的，那么直接发送出去。
-    if (userData == kNotReprocessFlag) {
+    if (userData == kUser_NotReprocessFlag) {
         goto RET;
     }
     
@@ -422,22 +438,24 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
         }
     }
 
+    // vertical scroll
     {
-        int64_t wheelFlags;
-        if (curApp == App_Photoshop) {
-            wheelFlags = kCGEventFlagMaskControl | kCGEventFlagMaskAlternate;
-        } else {
-            wheelFlags = kCGEventFlagMaskControl;
-        }
-        
-        // ctrl + mouse Y => wheel
-        if (matchFlags(flags, wheelFlags)) {
-            if (llabs(mouseDeltaY) > 0) {
+        if (llabs(mouseDeltaY) > 0) {
+            int64_t wheelFlags;
+            if (curApp == App_Photoshop) {
+                wheelFlags = kCGEventFlagMaskControl | kCGEventFlagMaskAlternate;
+            } else {
+                wheelFlags = kCGEventFlagMaskControl;
+            }
+            
+            // ctrl + mouse Y => wheel
+            if (matchFlags(flags, wheelFlags)) {
+                
                 CGEventFlags flags_;
                 if (curApp == App_Preview) {
                     // 预览app，如果去掉了原始按下的 control flag,模拟滚动会无效
                     flags_ = flags;
-                } else {
+               } else {
                     // idea系列，必须去掉 control flag，才有效
                     flags_ = flags ^ kCGEventFlagMaskControl;
                 }
@@ -453,15 +471,36 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
                     wheelSensitivity = 2;
                 }
                 
-                postScrollWheelEvent(src, 1, (int32_t)(mouseDeltaY * wheelSensitivity), flags_);
-                //                postScrollWheelEvent(src, 1, (int32_t)(mouseDeltaY, flags ^ kCGEventFlagMaskControl);
+                postScrollWheelEvent(src, 1, (int32_t)(mouseDeltaY * wheelSensitivity), flags_, false);
+                return nil;
             }
-            // ?: how to scroll horizantally
-            //            else if (llabs(mouseDeltaX) > 0) {
-            //                postScrollWheelEvent(src, 2, (int32_t)mouseDeltaY, flags ^ kCGEventFlagMaskControl);
-            //            }
         }
-
+    }
+    
+    // horizontal scroll
+    // !note: 没有找到直接scroll x轴的api，所以先发送y轴滚动，再截获后改成x轴滚动
+    {
+        if (llabs(mouseDeltaX) > 0 &&
+            curApp != App_Photoshop) {
+            int64_t wheelFlags;
+            wheelFlags = kCGEventFlagMaskShift;
+            
+            // shift + mouse x => wheel x
+            if (matchFlags(flags, wheelFlags)) {
+                
+                CGEventFlags flags_;
+                if (curApp == App_Preview) {
+                    // 预览app，如果去掉了原始按下的 control flag,模拟滚动会无效
+                    flags_ = flags;
+                } else {
+                    // idea系列，必须去掉 flag，才有效
+                    flags_ = flags ^ kCGEventFlagMaskShift;
+                }
+               
+                postScrollWheelEvent(src, 1, (int32_t)(mouseDeltaX), flags_, true);
+                return nil;
+            }
+        }
     }
     // -----------------------------------------------------------------
 
@@ -568,13 +607,13 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
                     //                CGEventSourceRef eventSource = CGEventCreateSourceFromEvent(event);
                     replacedEvent = CGEventCreateKeyboardEvent((CGEventSourceRef) src, (CGKeyCode) 58, true);
                     CGEventSetFlags(replacedEvent, flags | kCGEventFlagMaskAlternate);
-                    CGEventSetIntegerValueField(replacedEvent, kCGEventSourceUserData, kNotReprocessFlag);
+                    CGEventSetIntegerValueField(replacedEvent, kCGEventSourceUserData, kUser_NotReprocessFlag);
                     CGEventPost(tapLoc, replacedEvent); //  option              return nil;
                     CFRelease(replacedEvent);
                     
                     replacedEvent = CGEventCreateMouseEvent((CGEventSourceRef) src, kCGEventOtherMouseDown, CGEventGetLocation(event), kCGMouseButtonCenter);
                     CGEventSetFlags(replacedEvent, flags | kCGEventFlagMaskAlternate);
-                    CGEventSetIntegerValueField(replacedEvent, kCGEventSourceUserData, kNotReprocessFlag);
+                    CGEventSetIntegerValueField(replacedEvent, kCGEventSourceUserData, kUser_NotReprocessFlag);
                     CGEventPost(tapLoc, replacedEvent); //                return nil;
                     CFRelease(replacedEvent);
                     return nil;
@@ -680,7 +719,7 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
                     
                     replacedEvent = CGEventCreateMouseEvent((CGEventSourceRef) src, kCGEventRightMouseDragged, CGEventGetLocation(event), kCGMouseButtonRight);
                     //            CGEventSetFlags(replacedEvent, 0);
-                    CGEventSetIntegerValueField(replacedEvent, kCGEventSourceUserData, kNotReprocessFlag);
+                    CGEventSetIntegerValueField(replacedEvent, kCGEventSourceUserData, kUser_NotReprocessFlag);
                     CGEventPost(tapLoc, replacedEvent); //
                     CFRelease(replacedEvent);
                     return nil;
@@ -698,7 +737,7 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
                         
                         replacedEvent = CGEventCreateMouseEvent((CGEventSourceRef) src, kCGEventRightMouseDown, CGEventGetLocation(event), kCGMouseButtonRight);
                         //            NSLog(@"flag is %lld", flags);  // kCGEventFlagMaskNonCoalesced -> 0x100 -> 256
-                        CGEventSetIntegerValueField(replacedEvent, kCGEventSourceUserData, kNotReprocessFlag);
+                        CGEventSetIntegerValueField(replacedEvent, kCGEventSourceUserData, kUser_NotReprocessFlag);
                         CGEventPost(tapLoc, replacedEvent); //
                         CFRelease(replacedEvent);
                         return nil;
@@ -712,7 +751,7 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
                     
                     replacedEvent = CGEventCreateMouseEvent((CGEventSourceRef) src, kCGEventRightMouseUp, CGEventGetLocation(event), kCGMouseButtonRight);
                     //        CGEventSetFlags(replacedEvent, flags);
-                    CGEventSetIntegerValueField(replacedEvent, kCGEventSourceUserData, kNotReprocessFlag);
+                    CGEventSetIntegerValueField(replacedEvent, kCGEventSourceUserData, kUser_NotReprocessFlag);
                     CGEventPost(tapLoc, replacedEvent); //
                     CFRelease(replacedEvent);
                     return nil;
@@ -726,7 +765,7 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
         if (isZDown) {
             replacedEvent = CGEventCreateMouseEvent((CGEventSourceRef) src, kCGEventRightMouseDragged, CGEventGetLocation(event), kCGMouseButtonRight);
             //        CGEventSetFlags(replacedEvent, flags);
-            CGEventSetIntegerValueField(replacedEvent, kCGEventSourceUserData, kNotReprocessFlag);
+            CGEventSetIntegerValueField(replacedEvent, kCGEventSourceUserData, kUser_NotReprocessFlag);
             CGEventPost(tapLoc, replacedEvent); //
             CFRelease(replacedEvent);
             return nil;
@@ -919,15 +958,15 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
 RET:
     count++;
     //    NSLog(@"event finally is %u, count: %lld", CGEventGetType(event), count);
-    //    keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode);
-    //    flags = CGEventGetFlags(event);
-    //    type = CGEventGetType(event);
-    //    NSLog(@"final ---->> code = %d, type = %d, flag = %d", keycode, type, flags);
-    //    for (int i = 1; i <= 13; i++) {
-    //        int64_t value = CGEventGetIntegerValueField(event, i);
-    //        NSLog(@"intergerValueField %d = %d", i, value);
-    //    }
-    //    NSLog(@"---------------");
+//        keycode = CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode);
+//        flags = CGEventGetFlags(event);
+//        type = CGEventGetType(event);
+//        NSLog(@"final ---->> code = %d, type = %d, flag = %d", keycode, type, flags);
+//        for (int i = 1; i <= 13; i++) {
+//            int64_t value = CGEventGetIntegerValueField(event, i);
+//            NSLog(@"intergerValueField %d = %d", i, value);
+//        }
+//        NSLog(@"---------------");
     return event;
 }
 
@@ -950,6 +989,13 @@ void enableAccessibility() {
 
 void createKeyEventListener(FILE *pLogFile) {
     int mask = CGEventMaskBit(kCGEventFlagsChanged) |
+    CGEventMaskBit(kCGEventScrollWheel) |
+//    CGEventMaskBit(kCGEventTabletPointer) |
+//    CGEventMaskBit(kCGEventTabletProximity) |
+//    CGEventMaskBit(kCGEventOtherMouseDown) |
+//    CGEventMaskBit(kCGEventOtherMouseUp) |
+//    CGEventMaskBit(kCGEventOtherMouseDragged) |
+    
     CGEventMaskBit(kCGEventLeftMouseDown) |
     CGEventMaskBit(kCGEventLeftMouseUp) |
     CGEventMaskBit(kCGEventRightMouseDown) |
@@ -963,6 +1009,7 @@ void createKeyEventListener(FILE *pLogFile) {
     CGEventMaskBit(kCGEventOtherMouseDragged) |
     CGEventMaskBit(kCGEventKeyDown) |
     CGEventMaskBit(kCGEventKeyUp);
+    
     
     eventTap = CGEventTapCreate(kCGHIDEventTap,
                                 kCGHeadInsertEventTap,
