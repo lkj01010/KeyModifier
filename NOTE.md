@@ -15,3 +15,6 @@
  
  ### `回调函数函数内部不再享受 autoreleasepool效应`
  此时，NSObject的release也不能调用，会编译错误，解决办法是在写个 autorelasepool把 NSObject包起来
+
+### 手柄开发指南
+[Game Controller Programming Guide](https://developer.apple.com/library/archive/documentation/ServicesDiscovery/Conceptual/GameControllerPG/ReadingControllerInputs/ReadingControllerInputs.html#//apple_ref/doc/uid/TP40013276-CH3-SW9)

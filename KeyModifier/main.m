@@ -17,7 +17,6 @@
 
 #import <objc/runtime.h>
 
-
 enum App {
     None,
     App_Maya_Or_FbxReview,
@@ -457,7 +456,7 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
                     flags_ = flags;
                } else {
                     // idea系列，必须去掉 control flag，才有效
-                    flags_ = flags ^ kCGEventFlagMaskControl;
+                    flags_ = flags ^ wheelFlags;
                 }
                 
                 float wheelSensitivity = 1;
@@ -483,7 +482,7 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
         if (llabs(mouseDeltaX) > 0 &&
             curApp != App_Photoshop) {
             int64_t wheelFlags;
-            wheelFlags = kCGEventFlagMaskShift;
+            wheelFlags = kCGEventFlagMaskShift | kCGEventFlagMaskControl;
             
             // shift + mouse x => wheel x
             if (matchFlags(flags, wheelFlags)) {
@@ -494,7 +493,7 @@ CGEventRef captureKeyStroke(CGEventTapProxy proxy, CGEventType type, CGEventRef 
                     flags_ = flags;
                 } else {
                     // idea系列，必须去掉 flag，才有效
-                    flags_ = flags ^ kCGEventFlagMaskShift;
+                    flags_ = flags ^ wheelFlags;
                 }
                
                 postScrollWheelEvent(src, 1, (int32_t)(mouseDeltaX), flags_, true);
@@ -1045,6 +1044,8 @@ FILE *openLogFile(char *pLogFilename) {
 
 int main(int argc, const char *argv[]) {
     @autoreleasepool {
+        NSString *id = [ModifyMaya bundleIdentifier];
+        const char *str = [id UTF8String];
         ensureAccessibility();
         FILE *pLogFile = openLogFile("stdout");
         createKeyEventListener(pLogFile);
